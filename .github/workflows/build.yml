@@ -1,4 +1,4 @@
-name: Final Strace
+name: Strace Capture
 on:
   push:
     branches: [master]
@@ -7,17 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
+      - name: Capture HCA traffic
+        continue-on-error: true
+        run: |
           mkdir -p dist
           HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "PID=$HCA_PID" > dist/out.txt
-          sudo strace -qq -p $HCA_PID -e trace=write,writev -s 65535 2>&1 &
+          echo "PID=$HCA_PID" > dist/result.txt
+          echo "Starting strace..."
+          sudo strace -qq -p $HCA_PID -e trace=write -s 99999 -o dist/strace.txt 2>&1 &
           SPID=$!
-          sleep 8
-          kill $SPID 2>/dev/null; wait $SPID 2>/dev/null
+          sleep 10
+          sudo kill $SPID 2>/dev/null || true
+          echo "Lines: $(wc -l < dist/strace.txt)" >> dist/result.txt
+          head -100 dist/strace.txt >> dist/result.txt
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: strace
+          name: strace-capture
           path: dist/
           if-no-files-found: warn
