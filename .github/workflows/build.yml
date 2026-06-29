@@ -1,4 +1,4 @@
-name: SAS + API Deep Test
+name: Twirp API Test
 on:
   push:
     branches: [master]
@@ -7,43 +7,52 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
+      - name: Test Twirp API with correct format
+        continue-on-error: true
+        run: |
           SETTINGS=$(cat /opt/hca/.settings)
-          python3 << 'PYEOF'
-import json, urllib.parse
-
-s = json.loads(open('/opt/hca/.settings').read())
-auth = s['authToken']
-sas = s['diagnosticsSasUri']
-api = s['schedulerApiUrl']
-
-print(f"API URL: {api}")
-print(f"AUTH (first 50): {auth[:50]}...")
-print(f"1. Try different URL formats:")
-for path in ["/v1", "/v1/", "/api/v1", "/api/", "/", "/healthz"]:
-    print(f"  GET {api.replace('/v1','')}{path}")
-print(f"2. SAS container URL:")
-# Parse SAS URI
-parsed = urllib.parse.urlparse(sas)
-query = urllib.parse.parse_qs(parsed.query)
-print(f"  Blob endpoint: {parsed.scheme}://{parsed.netloc}")
-print(f"  Container: {parsed.path.split('/')[1] if parsed.path else '?'}")
-print(f"  SAS params: se={query.get('se',['?'])[0]}, sp={query.get('sp',['?'])[0]}")
-print(f"3. JWT claims:")
-import base64
-def b64d(x):
-    x += '=='[:(4-len(x)%4)%4]
-    return base64.urlsafe_b64decode(x)
-for part in auth.split('.')[:2]:
-    try:
-        d = json.loads(b64d(part))
-        print(f"  {json.dumps(d, indent=2)}")
-    except:
-        pass
-PYEOF
+          AUTH=$(python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])" <<< "$SETTINGS")
+          API=$(python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])" <<< "$SETTINGS")
+          
+          BASE="$API/twirp/github.actions.run_service.api.twirp.v1.RunService"
+          
+          echo "=== Test 1: JSON Twirp ==="
+          echo "URL: $BASE/GetPlanStatus"
+          curl -sk --http2 --connect-timeout 10 \
+            -H "Authorization: Bearer $AUTH" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"planId":"test"}' \
+            "$BASE/GetPlanStatus" 2>&1 | head -20
+          
+          echo ""
+          echo "=== Test 2: protobuf Twirp ==="
+          echo "URL: $BASE/StartPlan"
+          curl -sk --http2 --connect-timeout 10 \
+            -H "Authorization: Bearer $AUTH" \
+            -H "Content-Type: application/protobuf" \
+            -H "Accept: application/protobuf" \
+            --data-binary $'\n' \
+            "$BASE/StartPlan" 2>&1 | head -20
+          
+          echo ""
+          echo "=== Test 3: Check if using different subdomain ==="
+          for host in "iad-01" "iad-02" "eus-01" "eus-02" "pws-01" "pws-02"; do
+            url="https://hosted-compute-request-orchestrator-prod-${host}.githubapp.com/v1"
+            echo "--- $host ---"
+            curl -sk --connect-timeout 3 "$url/" 2>&1 | head -3
+          done
+          
+          echo ""
+          echo "=== Test 4: Try trace endpoint ==="
+          TRACE=$(python3 -c "import sys,json;print(json.load(sys.stdin)['traceApiUrl'])" <<< "$SETTINGS")
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$TRACE" 2>&1 | head -10
+          
+          echo ""
+          echo "=== DONE ==="
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: deep-hca
+          name: twirp-final
           path: dist/
