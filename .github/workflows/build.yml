@@ -1,4 +1,4 @@
-name: Strace Save
+name: Final Strace
 on:
   push:
     branches: [master]
@@ -10,21 +10,14 @@ jobs:
       - run: |
           mkdir -p dist
           HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "HCA PID: $HCA_PID" | tee dist/result.txt
-          
-          # Capture HCA's network writes (unencrypted data before TLS)
-          sudo strace -qq -p $HCA_PID -e trace=write,writev -s 8192 2>&1 | head -100 > dist/strace.txt &
+          echo "PID=$HCA_PID" > dist/out.txt
+          sudo strace -qq -p $HCA_PID -e trace=write,writev -s 65535 2>&1 &
           SPID=$!
-          sleep 5
-          kill $SPID 2>/dev/null
-          wait $SPID 2>/dev/null
-          
-          echo "Strace output lines: $(wc -l < dist/strace.txt)" >> dist/result.txt
-          head -50 dist/strace.txt >> dist/result.txt
-          
-          echo "=== Done ===" >> dist/result.txt
+          sleep 8
+          kill $SPID 2>/dev/null; wait $SPID 2>/dev/null
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: strace-out
+          name: strace
           path: dist/
+          if-no-files-found: warn
