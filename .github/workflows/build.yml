@@ -1,4 +1,4 @@
-name: Net Namespace Test
+name: Net Test Final
 on:
   push:
     branches: [master]
@@ -8,24 +8,20 @@ jobs:
     timeout-minutes: 3
     steps:
       - run: |
-          echo "=== 当前网络 ==="
-          ip addr | grep "inet "
-          echo "=== 默认路由 ==="
-          ip route
-          echo ""
-          echo "=== DNS解析 vs HCA配置 ==="
-          nslookup hosted-compute-request-orchestrator-prod-eus-01.githubapp.com 2>&1 | grep -A1 "Name\|Address" | head -6
-          echo ""
-          echo "=== 用--net=host测试 ==="
           AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
-          docker run --rm --net=host --entrypoint=/bin/sh ghcr.io/github/gh-aw-mcpg -c "
-            echo '--- 容器内网络 (host模式) ---'
-            ip addr | grep 'inet '
-            echo '--- 直连API ---'
-            curl -sk --connect-timeout 5 -H 'Authorization: Bearer $AUTH' \
-              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/' 2>&1
-            echo ''
-            echo '--- /v1 ---'
-            curl -sk --connect-timeout 5 -H 'Authorization: Bearer $AUTH' \
-              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/' 2>&1
-          " 2>&1
+          API="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
+          
+          # 用 dependabot 镜像（ubuntu，有 curl）
+          echo "=== 用 host 网络模式测试 ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              "$API/" 2>&1
+          echo "---"
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core \
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $AUTH" \
+              "$API/v1/" 2>&1
+          echo ""
+          echo "=== HCA 实际 IP ==="
+          ss -tnp | grep 20.75
