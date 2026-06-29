@@ -1,4 +1,4 @@
-name: Comm Probe
+name: Communication Deep Dive
 on:
   push:
     branches: [master]
@@ -7,17 +7,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check SSH connections
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Probe hosted-compute-agent
+        continue-on-error: true
         run: |
-          ss -tnp | grep -v "127.0.0.1\|::1\|172.17" | head -30
-      - name: Check DNS
+          echo "=== hosted-compute-agent process ==="
+          ps aux | grep hosted-compute
+          echo "=== binary info ==="
+          file /opt/hca/hosted-compute-agent
+          ls -la /opt/hca/
+          echo "=== config ==="
+          find /opt/hca -type f -name "*.json" -o -name "*.yaml" -o -name "*.yml" -o -name "*.env" -o -name "*.toml" 2>/dev/null | head -20
+          echo "=== strings from binary (env vars) ==="
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -iE "token|key|secret|password|endpoint|url|github" | head -30 || echo "no strings"
+          echo "=== Runner.Listener args ==="
+          cat /proc/$(pgrep -f Runner.Listener)/cmdline 2>/dev/null | tr '\0' ' '
+          echo ""
+          echo "=== Runner.Worker args ==="
+          cat /proc/$(pgrep -f Runner.Worker)/cmdline 2>/dev/null | tr '\0' ' '
+
+      - name: Check for WebSocket connections
         run: |
-          nslookup api.github.com 2>&1 | head -10
-          nslookup pipelines.actions.githubusercontent.com 2>&1 | head -10
-      - name: Check Runner Listener
-        run: |
-          ps aux | grep -i "runner" | head -10
-          cat /home/runner/actions-runner/.runner 2>/dev/null || echo "no .runner"
-      - name: Docker networks
-        run: |
-          docker network ls 2>/dev/null
+          ss -tnpa 2>/dev/null | grep -v "127.0.0.1\|::1\|172.17" | head -30
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: comm-deep
+          path: dist/
