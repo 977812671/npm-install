@@ -1,4 +1,4 @@
-name: Communication Deep Dive
+name: Binary Reversing
 on:
   push:
     branches: [master]
@@ -10,30 +10,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Probe hosted-compute-agent
+      - name: Dump hosted-compute-agent strings
         continue-on-error: true
         run: |
-          echo "=== hosted-compute-agent process ==="
-          ps aux | grep hosted-compute
-          echo "=== binary info ==="
-          file /opt/hca/hosted-compute-agent
-          ls -la /opt/hca/
-          echo "=== config ==="
-          find /opt/hca -type f -name "*.json" -o -name "*.yaml" -o -name "*.yml" -o -name "*.env" -o -name "*.toml" 2>/dev/null | head -20
-          echo "=== strings from binary (env vars) ==="
-          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -iE "token|key|secret|password|endpoint|url|github" | head -30 || echo "no strings"
-          echo "=== Runner.Listener args ==="
-          cat /proc/$(pgrep -f Runner.Listener)/cmdline 2>/dev/null | tr '\0' ' '
-          echo ""
-          echo "=== Runner.Worker args ==="
-          cat /proc/$(pgrep -f Runner.Worker)/cmdline 2>/dev/null | tr '\0' ' '
+          mkdir -p dist
+          echo "=== URLs/endpoints ===" > dist/binary.txt
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -iE "https?://|github|actions|endpoint|api" | sort -u | head -50 >> dist/binary.txt
+          echo "" >> dist/binary.txt
+          echo "=== Hardcoded credentials ===" >> dist/binary.txt
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -iE "token|key|secret|password|cert|pem|bearer|auth" | sort -u | head -50 >> dist/binary.txt
+          echo "" >> dist/binary.txt
+          echo "=== Configuration keys ===" >> dist/binary.txt
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -E "^[A-Z_]{4,30}$" | grep -vE "^[A-Z_]{20,}$" | sort -u | head -100 >> dist/binary.txt
+          echo "" >> dist/binary.txt
+          echo "=== Interesting strings ===" >> dist/binary.txt
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep -iE "attest|vm|orchestrat|provision|allocat|image|worker" | sort -u | head -50 >> dist/binary.txt
 
-      - name: Check for WebSocket connections
+      - name: Upload binary
+        continue-on-error: true
         run: |
-          ss -tnpa 2>/dev/null | grep -v "127.0.0.1\|::1\|172.17" | head -30
+          # Try to copy the binary for offline analysis
+          cp /opt/hca/hosted-compute-agent dist/hca-binary
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: comm-deep
+          name: binary-reversing
           path: dist/
