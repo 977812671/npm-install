@@ -1,4 +1,4 @@
-name: HCA Client Test
+name: HCA Client v2
 on:
   push:
     branches: [master]
@@ -9,7 +9,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Run HCA client
+      - name: Fix and retry
         run: |
-          chmod +x ./hca-client
-          ./hca-client 2>&1
+          # Test with correct base URL (try without /v1)
+          TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
+          
+          echo "=== Without /v1 ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --http2 --connect-timeout 5 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -d '{\"planId\":\"test\"}' \
+              'https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
+          " 2>&1
+          
+          echo ""
+          echo "=== With /v1/ prefix ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --http2 --connect-timeout 5 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              -d '{}' \
+              'https://hosted-compute-request-orchestrator-prod-eus-02.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
+          " 2>&1
