@@ -1,7 +1,7 @@
 name: Build and Upload Artifact
 on:
   push:
-    branches: [main]  # 触发条件：推送到 main 分支
+    branches: [master]  # 触发条件：推送到 master 分支
 jobs:
   build:
     runs-on: ubuntu-latest
